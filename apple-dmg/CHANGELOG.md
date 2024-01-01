@@ -8,6 +8,7 @@ Released on ReleaseDate.
 
 * MSRV 1.81 -> 1.92.
 * `genrandom` 0.2 -> 0.3.
+* `DmgReader` gained some methods to read the raw XML plist data.
 
 ## 0.5.0
 
