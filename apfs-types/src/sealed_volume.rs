@@ -118,6 +118,7 @@ pub struct IntegrityMetadataRaw {
     /// Reserved (`im_reserved`).
     ///
     /// Only present in version 2 and later.
+    #[cfg_attr(feature = "derive", apfs(internal))]
     pub reserved: [u64; 9],
 }
 
