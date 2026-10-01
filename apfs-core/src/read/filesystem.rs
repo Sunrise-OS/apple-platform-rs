@@ -10,20 +10,27 @@ use crate::data_stream::{FileExtentRecordKeyParsed, FileExtentRecordValueParsed}
 use crate::error::{ApfsError, Result};
 use crate::filesystem::{
     DirectoryEntryRecordValueParsed, ExtendedAttributeRecordKeyParsed,
-    ExtendedAttributeRecordValueParsed, ExtendedAttributeValue, FileModeRaw, FileSystemKeyParsed,
-    FileSystemObjectType, FileSystemRecord, InodeRecord, InodeRecordKeyParsed,
-    InodeRecordValueParsed, INODE_ROOT_DIRECTORY, INODE_ROOT_DIRECTORY_PARENT,
+    ExtendedAttributeRecordValueParsed, FileModeRaw, FileSystemKeyParsed, FileSystemObjectType,
+    FileSystemRecord, InodeRecord, InodeRecordKeyParsed, InodeRecordValueParsed,
+    INODE_ROOT_DIRECTORY,
 };
+#[cfg(feature = "std")]
+use crate::filesystem::{ExtendedAttributeValue, INODE_ROOT_DIRECTORY_PARENT};
+use crate::io::{Read, Take};
 use crate::object_map::ObjectMap;
 use crate::read::file_extent::FileExtentReader;
+use alloc::{string::String, vec, vec::Vec};
 use apfs_types::ParsedDiskStruct;
-use log::{debug, trace, warn};
-use std::io::Read;
+use log::debug;
+#[cfg(feature = "std")]
+use log::{trace, warn};
+#[cfg(feature = "std")]
 use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "std")]
 use xattr::FileExt;
 
 use apfs_types::pod::ApfsString;
-#[cfg(unix)]
+#[cfg(all(feature = "std", unix))]
 use std::os::unix::fs::PermissionsExt;
 
 /// Obtains the character representing the file type.
@@ -118,14 +125,14 @@ pub fn file_mode_text_mask_other(mode: FileModeRaw) -> [char; 3] {
 ///
 /// e.g. `drwxrwxrwx`.
 pub fn file_mode_text_mask(mode: FileModeRaw) -> String {
-    std::iter::once(file_mode_text_mask_type(mode))
+    core::iter::once(file_mode_text_mask_type(mode))
         .chain(file_mode_text_mask_owner(mode).into_iter())
         .chain(file_mode_text_mask_group(mode).into_iter())
         .chain(file_mode_text_mask_other(mode).into_iter())
         .collect()
 }
 
-#[cfg(unix)]
+#[cfg(all(feature = "std", unix))]
 fn reconcile_permissions(
     _existing: std::fs::Permissions,
     inode: &InodeRecord,
@@ -133,7 +140,7 @@ fn reconcile_permissions(
     std::fs::Permissions::from_mode(inode.value.mode().bits() as u32)
 }
 
-#[cfg(windows)]
+#[cfg(all(feature = "std", windows))]
 fn reconcile_permissions(
     mut existing: std::fs::Permissions,
     inode: &InodeRecord,
@@ -243,7 +250,10 @@ impl FilesystemRecordCollection {
     ///
     /// This constructs a reader from file extent records and inode / data stream
     /// metadata.
-    pub fn file_reader<'a, R: BlockReader>(&self, reader: &'a R) -> Result<impl Read + 'a> {
+    pub fn file_reader<'a, R: BlockReader>(
+        &self,
+        reader: &'a R,
+    ) -> Result<impl Read<Error = crate::block::BlockReadError> + 'a> {
         let inode = self.inode().ok_or(ApfsError::FileNoInode)?;
         let dstream = inode.data_stream()?.ok_or(ApfsError::InodeNoDataStream)?;
         debug!(
@@ -254,7 +264,7 @@ impl FilesystemRecordCollection {
 
         let reader = FileExtentReader::new(reader, self.file_extents());
 
-        Ok(reader.take(dstream.size_bytes()))
+        Ok(Take::new(reader, dstream.size_bytes()))
     }
 
     /// Write this filesystem record to the specified local filesystem path.
@@ -262,6 +272,7 @@ impl FilesystemRecordCollection {
     /// Effectively copies the record to another filesystem.
     ///
     /// Implementation is best effort and not feature complete.
+    #[cfg(feature = "std")]
     pub fn write_path<'a, R: BlockReader>(&self, reader: &'a R, dest_path: &Path) -> Result<()> {
         let inode = self.inode().ok_or(ApfsError::FileNoInode)?;
 
@@ -283,7 +294,7 @@ impl FilesystemRecordCollection {
                 trace!("creating file {}", dest_path.display());
                 let mut reader = self.file_reader(reader)?;
                 let mut fh = std::fs::File::create(dest_path)?;
-                std::io::copy(&mut reader, &mut fh)?;
+                std::io::copy(&mut crate::io::ToStd(&mut reader), &mut fh)?;
                 fh
             }
             _ => {
@@ -392,7 +403,7 @@ impl<'a, R: BlockReader, O: ObjectMap> FilesystemTreeReader<'a, R, O> {
 
         self.iter_entries()
             .map(|x| Some(x))
-            .chain(std::iter::once(None))
+            .chain(core::iter::once(None))
             .filter_map(move |entry| {
                 match entry {
                     Some(Ok((k, v))) => {
@@ -491,6 +502,7 @@ impl<'a, R: BlockReader, O: ObjectMap> FilesystemTreeReader<'a, R, O> {
     /// In other words, it should begin with `/` and name components must
     /// not be `..`. The `.` path component (e.g. `/etc/./password`) is allowed
     /// and effectively ignored.
+    #[cfg(feature = "std")]
     pub fn collected_records_for_path(&self, path: &Path) -> Result<FilesystemRecordCollection> {
         let mut components = path.components();
 
@@ -585,6 +597,7 @@ impl<'a, R: BlockReader, O: ObjectMap> FilesystemTreeReader<'a, R, O> {
     }
 
     /// Resolve the absolute path for an inode.
+    #[cfg(feature = "std")]
     pub fn inode_absolute_path(&self, record: &InodeRecord) -> Result<PathBuf> {
         if record.key.header().id() == INODE_ROOT_DIRECTORY {
             return Ok(PathBuf::from("/"));
@@ -611,6 +624,7 @@ impl<'a, R: BlockReader, O: ObjectMap> FilesystemTreeReader<'a, R, O> {
     }
 
     /// Obtain the relative path of an inode.
+    #[cfg(feature = "std")]
     pub fn inode_relative_path(&self, record: &InodeRecord) -> Result<PathBuf> {
         Ok(PathBuf::from_iter(
             self.inode_absolute_path(record)?.components().skip(1),

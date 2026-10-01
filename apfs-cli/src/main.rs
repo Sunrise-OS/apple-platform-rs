@@ -159,7 +159,7 @@ impl FilesystemSource {
             .clone()
             .ok_or_else(|| anyhow!("must define source"))?;
 
-        let fh = Box::new(File::open(path)?);
+        let fh = Box::new(apfs_core::io::FromStd(File::open(path)?));
         let reader = ContainerReader::new(fh)?;
 
         Ok(reader)
@@ -209,7 +209,7 @@ impl CliCommand for Cat {
 
             let mut fh = record.file_reader(&reader)?;
 
-            std::io::copy(&mut fh, &mut std::io::stdout())?;
+            std::io::copy(&mut apfs_core::io::ToStd(&mut fh), &mut std::io::stdout())?;
         }
 
         Ok(())
@@ -732,7 +732,8 @@ impl CliCommand for DmgLs {
             eprintln!("reading APFS filesystem in partition {}", i);
             let data = dmg_reader.partition_data(i)?;
 
-            let reader = ContainerReader::new(Box::new(std::io::Cursor::new(data)))?;
+            let reader =
+                ContainerReader::new(Box::new(apfs_core::io::FromStd(std::io::Cursor::new(data))))?;
             let sb_reader = reader.superblock_reader_latest()?;
 
             ls_superblock_reader(&sb_reader)?;

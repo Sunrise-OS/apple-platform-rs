@@ -57,7 +57,7 @@ pub enum ApfsError {
     #[error("path not found")]
     PathNotFound,
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] crate::io::IoError),
 }
 
 impl From<ParseError> for ApfsError {
@@ -66,4 +66,11 @@ impl From<ParseError> for ApfsError {
     }
 }
 
-pub type Result<T, E = ApfsError> = std::result::Result<T, E>;
+#[cfg(feature = "std")]
+impl From<std::io::Error> for ApfsError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value.into())
+    }
+}
+
+pub type Result<T, E = ApfsError> = core::result::Result<T, E>;

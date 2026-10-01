@@ -10,8 +10,8 @@ use crate::{block::BlockReader, error::Result};
 use apfs_types::common::{TransactionIdentifierRaw, VirtualObjectIdentifierRaw};
 pub use apfs_types::object_map::*;
 use apfs_types::{DiskStruct, ParsedDiskStruct};
+use core::cell::RefCell;
 use log::debug;
-use std::cell::RefCell;
 
 /// Describes common behavior of an object map.
 pub trait ObjectMap {

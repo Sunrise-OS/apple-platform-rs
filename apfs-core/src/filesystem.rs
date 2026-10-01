@@ -27,7 +27,7 @@ use apfs_types::snapshot::{
     SnapshotNameRecordValueParsed,
 };
 use apfs_types::ParsedDiskStruct;
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 /// Represents a parsed inode record.
 ///

@@ -5,14 +5,14 @@
 //! Block-level primitives.
 
 use crate::error::Result;
+use crate::io::{ErrorType, IoError, Read, Seek, SeekFrom};
 use crate::write::block::MutBlock;
 use apfs_types::common::PhysicalObjectIdentifierRaw;
 use apfs_types::object::ObjectHeaderParsed;
 use apfs_types::{ParseError, ParsedDiskStruct};
 use bytes::{Bytes, BytesMut};
+use core::ops::Deref;
 use log::trace;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
 use thiserror::Error;
 
 /// Error for a block reading operation.
@@ -21,13 +21,24 @@ pub enum BlockReadError {
     #[error("block number {0} is out of bounds")]
     BlockBounds(PhysicalObjectIdentifierRaw),
     #[error("I/O error reading block data: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] IoError),
     #[error("invalid checksum")]
     InvalidChecksum,
     #[error("failed to parse object header: {0}")]
     ObjectHeaderParse(ParseError),
     #[error("other block reading error: {0}")]
     Other(&'static str),
+}
+
+impl embedded_io::Error for BlockReadError {
+    fn kind(&self) -> crate::io::ErrorKind {
+        match self {
+            Self::Io(e) => embedded_io::Error::kind(e),
+            Self::BlockBounds(_) => crate::io::ErrorKind::InvalidInput,
+            Self::InvalidChecksum | Self::ObjectHeaderParse(_) => crate::io::ErrorKind::InvalidData,
+            Self::Other(_) => crate::io::ErrorKind::Other,
+        }
+    }
 }
 
 /// Interface for reading blocks.
@@ -43,7 +54,7 @@ pub trait BlockReader {
     /// * The full block size is read into the [BytesMut]. No partial reads.
     ///
     /// These conditions can be achieved by calling `buf.resize(block_size)`
-    /// and `read_exact(buf)` on a [std::io::Read] instance.
+    /// and `read_exact(buf)` on a [crate::io::Read] instance.
     fn read_block_into<N: Into<PhysicalObjectIdentifierRaw>>(
         &self,
         block_number: N,
@@ -219,12 +230,16 @@ impl<'a, R: BlockReader> BlockRangeReader<'a, R> {
     }
 }
 
+impl<R: BlockReader> ErrorType for BlockRangeReader<'_, R> {
+    type Error = BlockReadError;
+}
+
 impl<'a, R: BlockReader> Read for BlockRangeReader<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut buf_offset = 0;
 
         while buf_offset < buf.len() {
-            let mut dest = &mut buf[buf_offset..];
+            let dest = &mut buf[buf_offset..];
 
             assert!(
                 !dest.is_empty(),
@@ -238,15 +253,13 @@ impl<'a, R: BlockReader> Read for BlockRangeReader<'a, R> {
             } else if self.current_block >= self.finish_block() {
                 return Ok(buf_offset);
             } else {
-                let block = self
-                    .reader
-                    .get_block(self.current_block)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                let block = self.reader.get_block(self.current_block)?;
                 self.current_block += 1;
                 block.buf
             };
 
-            let written = dest.write(input.as_ref())?;
+            let written = core::cmp::min(dest.len(), input.len());
+            dest[..written].copy_from_slice(&input[..written]);
             trace!("BlockRangeReader read({}) -> {}", input.len(), written);
             buf_offset += written;
 
@@ -270,7 +283,7 @@ impl<'a, R: BlockReader> Read for BlockRangeReader<'a, R> {
 }
 
 impl<'a, R: BlockReader> Seek for BlockRangeReader<'a, R> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let block_size = self.reader.block_size() as u64;
 
         match pos {
@@ -281,10 +294,7 @@ impl<'a, R: BlockReader> Seek for BlockRangeReader<'a, R> {
                 self.current_block = self.start_block + total_blocks;
 
                 if remainder != 0 {
-                    let block = self
-                        .reader
-                        .get_block(self.current_block)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                    let block = self.reader.get_block(self.current_block)?;
                     self.current_block += 1;
                     let partial = block.buf.slice(remainder as usize..);
                     self.partial_block = Some(partial);
@@ -294,14 +304,8 @@ impl<'a, R: BlockReader> Seek for BlockRangeReader<'a, R> {
 
                 Ok(pos)
             }
-            SeekFrom::End(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "seeking from end is not implemented",
-            )),
-            SeekFrom::Current(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "seeking from current location is not implemented",
-            )),
+            SeekFrom::End(_) => Err(IoError::Unsupported("seek from end").into()),
+            SeekFrom::Current(_) => Err(IoError::Unsupported("seek from current position").into()),
         }
     }
 }

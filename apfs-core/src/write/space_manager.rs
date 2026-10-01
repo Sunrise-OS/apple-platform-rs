@@ -7,6 +7,7 @@
 use crate::block::{Block, BlockReader};
 use crate::space_manager::{Result, SpaceManagerBlock, SpaceManagerError};
 use crate::write::block::MutBlock;
+use alloc::{vec, vec::Vec};
 use apfs_types::common::{
     ObjectIdentifierRaw, PhysicalAddressRaw, PhysicalObjectIdentifierRaw, TransactionIdentifierRaw,
 };
@@ -18,7 +19,6 @@ use apfs_types::space_manager::{
 };
 use apfs_types::DiskStruct;
 use bit_vec::BitVec;
-use std::io::Write;
 
 /// Describes a segment of a bitmap.
 pub struct BitmapChunk {

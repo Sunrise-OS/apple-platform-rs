@@ -164,8 +164,7 @@ impl Display for ParseError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError {}
+impl core::error::Error for ParseError {}
 
 /// Describes a data structure persisted to disk.
 pub trait DiskStruct

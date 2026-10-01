@@ -8,6 +8,8 @@ use crate::block::{Block, BlockReader};
 use crate::error::ApfsError;
 use crate::error::Result;
 use crate::object_map::ObjectMap;
+use alloc::boxed::Box;
+use alloc::collections::VecDeque;
 pub use apfs_types::btree::*;
 use apfs_types::common::{ObjectIdentifierParsed, TransactionIdentifierRaw};
 use apfs_types::{
@@ -17,10 +19,9 @@ use apfs_types::{
     ParsedDiskStruct,
 };
 use bytes::Bytes;
+use core::cmp::Ordering;
+use core::ops::Deref;
 use log::{debug, trace};
-use std::cmp::Ordering;
-use std::collections::VecDeque;
-use std::ops::Deref;
 
 /// Represents a key in a B-tree node.
 #[derive(Clone, Debug)]

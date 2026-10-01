@@ -7,7 +7,7 @@
 use crate::block::{fletcher64, Block};
 use apfs_types::common::PhysicalObjectIdentifierRaw;
 use bytes::BytesMut;
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 #[derive(Clone)]
 pub struct MutBlock {

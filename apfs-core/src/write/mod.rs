@@ -24,6 +24,7 @@ pub struct ContainerBuilder {
     pub uuid: Uuid,
 }
 
+#[cfg(feature = "std")]
 impl Default for ContainerBuilder {
     fn default() -> Self {
         Self {
@@ -35,6 +36,16 @@ impl Default for ContainerBuilder {
 }
 
 impl ContainerBuilder {
+    /// Create a builder with a caller-supplied UUID. Available without std:
+    /// the caller supplies randomness (or a deterministic UUID for image builds).
+    pub fn new(uuid: Uuid) -> Self {
+        Self {
+            block_size: CONTAINER_DEFAULT_BLOCK_SIZE_BYTES,
+            block_count: MINIMUM_CONTAINER_SIZE_BYTES / CONTAINER_DEFAULT_BLOCK_SIZE_BYTES as u64,
+            uuid,
+        }
+    }
+
     pub fn make_superblock(&self) -> ContainerSuperblockRaw {
         let mut sb = ContainerSuperblockRaw::new_zeroed();
 
@@ -67,7 +78,7 @@ impl ContainerBuilder {
 
         // Size of the container divided by 512 MiB rounded up no greater than
         // CONTAINER_MAX_FILE_SYSTEMS.
-        sb.set_maximum_filesystems(std::cmp::min(
+        sb.set_maximum_filesystems(core::cmp::min(
             (sb.block_size_bytes() as u64 * sb.block_count()).div_ceil(512 * 1048576) as u32,
             CONTAINER_MAX_FILE_SYSTEMS as u32,
         ));

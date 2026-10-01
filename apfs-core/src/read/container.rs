@@ -6,10 +6,15 @@
 
 use crate::block::{BlockReadError, BlockReader};
 use crate::error::{ApfsError, Result};
+use crate::io::ReadAt;
+#[cfg(feature = "std")]
+use crate::io::{FilesystemReader, IoError, SeekFrom};
 use crate::object_map::{ObjectMap, ObjectMapBlock};
 use crate::read::volume::VolumeReader;
-use crate::read::FilesystemReader;
 use crate::space_manager::SpaceManagerBlock;
+#[cfg(feature = "std")]
+use alloc::boxed::Box;
+use alloc::{sync::Arc, vec, vec::Vec};
 use apfs_types::common::{
     EphemeralObjectIdentifierRaw, PhysicalObjectIdentifierRaw, TransactionIdentifierRaw,
 };
@@ -24,8 +29,25 @@ use apfs_types::volume::VolumeSuperblockParsed;
 use apfs_types::ParsedDiskStruct;
 use bytes::BytesMut;
 use log::debug;
-use std::io::SeekFrom;
-use std::sync::{Arc, Mutex};
+#[cfg(feature = "std")]
+use std::sync::Mutex;
+
+/// Serializes seek + read as one operation for std streams.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+struct StreamReadAt(Mutex<Box<dyn FilesystemReader>>);
+
+#[cfg(feature = "std")]
+impl ReadAt for StreamReadAt {
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), IoError> {
+        let mut reader = self
+            .0
+            .lock()
+            .map_err(|_| IoError::Device(crate::io::ErrorKind::Other))?;
+        reader.seek(SeekFrom::Start(offset))?;
+        reader.read_exact(buf)
+    }
+}
 
 /// A reader for APFS containers.
 ///
@@ -35,7 +57,7 @@ use std::sync::{Arc, Mutex};
 /// area.
 #[derive(Clone, Debug)]
 pub struct ContainerReader {
-    reader: Arc<Mutex<Box<dyn FilesystemReader>>>,
+    reader: Arc<dyn ReadAt>,
     initial_position: u64,
     block_size: usize,
     initial_superblock: ContainerSuperblockParsed,
@@ -56,36 +78,41 @@ impl BlockReader for ContainerReader {
 
         buf.resize(self.block_size as _, 0);
 
-        let mut reader = self
-            .reader
-            .lock()
-            .map_err(|_| BlockReadError::Other("reader lock poisoned"))?;
-        reader.seek(SeekFrom::Start(
-            self.initial_position + *block_number * self.block_size as u64,
-        ))?;
-
-        reader.read_exact(buf)?;
+        let offset = (*block_number)
+            .checked_mul(self.block_size as u64)
+            .and_then(|offset| self.initial_position.checked_add(offset))
+            .ok_or(BlockReadError::BlockBounds(block_number))?;
+        self.reader.read_exact_at(offset, buf)?;
 
         Ok(())
     }
 }
 
 impl ContainerReader {
-    /// Construct a new instance from a filesystem reader.
+    /// Construct from a host stream at its current position. Wrap std streams
+    /// in `crate::io::FromStd`. Seek + read are serialized with a std mutex.
+    #[cfg(feature = "std")]
     pub fn new(mut reader: Box<dyn FilesystemReader>) -> Result<Self> {
         let initial_position = reader.stream_position().map_err(BlockReadError::from)?;
+        Self::from_read_at(Arc::new(StreamReadAt(Mutex::new(reader))), initial_position)
+    }
 
+    /// Construct from positioned I/O, starting at a byte offset within the device.
+    /// This entry point is available without std; the backend owns locking.
+    pub fn from_read_at(reader: Arc<dyn ReadAt>, initial_position: u64) -> Result<Self> {
         // Block size may not be 4096 but 4096 is guaranteed large enough to
         // hold the initial superblock. And 4096 is the minimum block size.
         let mut buf = BytesMut::zeroed(4096);
-        reader.read_exact(&mut buf).map_err(BlockReadError::from)?;
+        reader
+            .read_exact_at(initial_position, &mut buf)
+            .map_err(BlockReadError::from)?;
 
         let initial_superblock = ContainerSuperblockParsed::from_bytes(buf.freeze())?;
 
         let block_size = initial_superblock.block_size_bytes() as usize;
 
         Ok(Self {
-            reader: Arc::new(Mutex::new(reader)),
+            reader,
             initial_position,
             block_size,
             initial_superblock,

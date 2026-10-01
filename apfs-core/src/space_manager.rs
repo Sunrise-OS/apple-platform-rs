@@ -14,8 +14,9 @@ pub use apfs_types::space_manager::*;
 use apfs_types::{DiskStruct, ParseError, ParsedDiskStruct};
 use bit_vec::BitVec;
 use bytes::Bytes;
-use std::ops::Deref;
+use core::ops::Deref;
 
+use alloc::{boxed::Box, vec::Vec};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -43,7 +44,7 @@ pub enum SpaceManagerError {
     BitmapBlockOutOfRange,
 }
 
-pub type Result<T, E = SpaceManagerError> = std::result::Result<T, E>;
+pub type Result<T, E = SpaceManagerError> = core::result::Result<T, E>;
 
 /// Represents a bitmap referenced by a [ChunkInfoRaw].
 ///

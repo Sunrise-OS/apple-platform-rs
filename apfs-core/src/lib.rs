@@ -2,6 +2,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+//! APFS reading and writing primitives.
+//!
+//! Without the default `std` feature this crate is `no_std` + `alloc` and
+//! builds on stable Rust. I/O uses [embedded_io] traits (see [io]).
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
 pub mod block;
 pub mod btree;
 pub mod container {
@@ -15,6 +26,7 @@ pub mod encryption {
 }
 pub mod error;
 pub mod filesystem;
+pub mod io;
 pub mod filesystem_extended_fields {
     pub use apfs_types::filesystem_extended_fields::*;
 }

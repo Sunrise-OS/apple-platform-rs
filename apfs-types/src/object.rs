@@ -20,7 +20,7 @@ use apfs_derive::ApfsData;
 use crate::{
     btree::*, common::*, container::*, data_stream::*, efi_jumpstart::*, encryption::*,
     encryption_rolling::*, filesystem::*, fusion::*, object_map::*, reaper::*, snapshot::*,
-    snapshot::*, space_manager::*, volume::*,
+    space_manager::*, volume::*,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, FromPrimitive, IntoPrimitive)]

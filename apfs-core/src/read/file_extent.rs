@@ -4,10 +4,12 @@
 
 //! File extent reading.
 
+use crate::block::BlockReadError;
 use crate::block::{BlockRangeReader, BlockReader};
+use crate::io::{ErrorType, Read};
+use alloc::{vec, vec::Vec};
 use apfs_types::data_stream::{FileExtentRecordKeyParsed, FileExtentRecordValueParsed};
 use log::trace;
-use std::io::Read;
 
 struct ExtentRecordReader<'a, R: BlockReader> {
     reader: BlockRangeReader<'a, R>,
@@ -15,8 +17,12 @@ struct ExtentRecordReader<'a, R: BlockReader> {
     read_bytes: u64,
 }
 
+impl<R: BlockReader> ErrorType for ExtentRecordReader<'_, R> {
+    type Error = BlockReadError;
+}
+
 impl<'a, R: BlockReader> Read for ExtentRecordReader<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let remaining = self.len_bytes - self.read_bytes;
 
         let dest = if buf.len() as u64 > remaining {
@@ -44,8 +50,12 @@ struct ExtentHole {
     read_bytes: u64,
 }
 
+impl ErrorType for ExtentHole {
+    type Error = BlockReadError;
+}
+
 impl Read for ExtentHole {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let remaining = self.len_bytes - self.read_bytes;
 
         let dest = if buf.len() as u64 > remaining {
@@ -68,8 +78,12 @@ enum RopeEntry<'a, R: BlockReader> {
     Hole(ExtentHole),
 }
 
+impl<R: BlockReader> ErrorType for RopeEntry<'_, R> {
+    type Error = BlockReadError;
+}
+
 impl<'a, R: BlockReader> Read for RopeEntry<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Record(r) => r.read(buf),
             Self::Hole(h) => h.read(buf),
@@ -142,8 +156,12 @@ impl<'a, R: BlockReader> FileExtentReader<'a, R> {
     }
 }
 
+impl<R: BlockReader> ErrorType for FileExtentReader<'_, R> {
+    type Error = BlockReadError;
+}
+
 impl<'a, R: BlockReader> Read for FileExtentReader<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         trace!("reading up to {} bytes from file extent reader", buf.len());
         let mut buf_offset = 0;
 
